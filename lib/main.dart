@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert'; // Ensure this import is present
-// ignore: unused_import
-import 'package:intl/intl_browser.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const MyApp());
@@ -20,7 +19,10 @@ class MyApp extends StatelessWidget {
         primaryColor: Colors.orange,
         scaffoldBackgroundColor: Colors.white,
       ),
-      home: const LoginScreen(), // Hlavná obrazovka aplikácie
+      home: const LoginScreen(),
+      routes: {
+        '/profile': (context) => const ProfileScreen(customerId: 1),
+      },
     );
   }
 }
@@ -83,7 +85,7 @@ class LoginScreen extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (context) => const icoLoginScreen()),
+                        builder: (context) => const IcoLoginScreen()),
                   );
                 },
                 style: ElevatedButton.styleFrom(
@@ -98,22 +100,6 @@ class LoginScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 20),
-              TextButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const CustomerRegistrationForm()),
-                  );
-                },
-                child: const Text(
-                  'Registrovať sa',
-                  style: TextStyle(
-                    color: Color.fromARGB(255, 10, 7, 1),
-                    fontSize: 16,
-                  ),
-                ),
-              ),
               Column(
                 children: [
                   const Text(
@@ -186,9 +172,71 @@ class EmailLoginScreen extends StatelessWidget {
     final TextEditingController emailController = TextEditingController();
     final TextEditingController passwordController = TextEditingController();
 
+    // Funkcia na odoslanie prihlasovacej požiadavky
+    Future<void> login(BuildContext context) async {
+      final String email = emailController.text.trim();
+      final String password = passwordController.text.trim();
+
+      if (email.isEmpty || password.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Prosím vyplňte e-mail a heslo!')),
+        );
+        return;
+      }
+
+      final url = Uri.parse('http://localhost:8080/customer/login');
+
+      try {
+        // Odoslanie požiadavky
+        final response = await http.post(
+          url,
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({'username': email, 'password': password}),
+        );
+
+        print('Odosielam JSON: ${json.encode({
+              'username': email,
+              'password': password
+            })}');
+        print('Response status code: ${response.statusCode}');
+        print('Response body: ${response.body}');
+
+        if (response.statusCode == 200) {
+          final responseData = json.decode(response.body);
+          final token = responseData['token'];
+          final customerId = responseData['customerId'];
+
+          // Uloženie tokenu do SharedPreferences
+          SharedPreferences prefs = await SharedPreferences.getInstance();
+          await prefs.setString('jwt_token', token);
+
+          // Navigácia na profilovú obrazovku
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ProfileScreen(customerId: customerId),
+            ),
+          );
+        } else if (response.statusCode == 400) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Chyba: ${response.body}')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Nesprávne prihlasovacie údaje!')),
+          );
+        }
+      } catch (error) {
+        print('Chyba pripojenia: $error');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Chyba pripojenia: $error')),
+        );
+      }
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Registrácia nového zákaznika'),
+        title: const Text('Prihlásenie'),
         backgroundColor: Colors.orange,
       ),
       body: Center(
@@ -222,30 +270,25 @@ class EmailLoginScreen extends StatelessWidget {
                 TextField(
                   controller: emailController,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'E-mail',
                     border: OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.email),
+                    prefixIcon: Icon(Icons.email),
                   ),
                 ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: passwordController,
                   obscureText: true,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'Heslo',
                     border: OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.lock),
+                    prefixIcon: Icon(Icons.lock),
                   ),
                 ),
                 const SizedBox(height: 20),
                 ElevatedButton(
-                  onPressed: () {
-                    final email = emailController.text;
-                    final password = passwordController.text;
-                    // TODO: Implement login logic
-                    print('Email: $email, Password: $password');
-                  },
+                  onPressed: () => login(context),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.orange,
                     shape: RoundedRectangleBorder(
@@ -257,23 +300,6 @@ class EmailLoginScreen extends StatelessWidget {
                     style: TextStyle(color: Colors.white),
                   ),
                 ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const ResetPasswordScreen()),
-                    );
-                  },
-                  child: const Text(
-                    'Zabudol som heslo',
-                    style: TextStyle(
-                      color: Colors.orange,
-                      fontSize: 16,
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
@@ -283,18 +309,201 @@ class EmailLoginScreen extends StatelessWidget {
   }
 }
 
+class ProfileScreen extends StatefulWidget {
+  final int customerId;
+
+  const ProfileScreen({super.key, required this.customerId});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  Map<String, dynamic>? customerData;
+  bool isLoading = true;
+  bool hasError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    fetchCustomerData();
+  }
+
+  Future<void> fetchCustomerData() async {
+    final url =
+        Uri.parse('http://localhost:8080/customer/${widget.customerId}');
+
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('jwt_token');
+
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token', // Posielanie tokenu
+        },
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          if (response.statusCode == 200) {
+            // Dekódovanie odpovede s UTF-8
+            final decodedResponse = utf8.decode(response.bodyBytes);
+
+            setState(() {
+              customerData = json.decode(decodedResponse);
+              isLoading = false;
+            });
+          } else {
+            throw Exception('Chyba pri načítaní údajov');
+          }
+          isLoading = false;
+        });
+      } else {
+        throw Exception('Chyba pri načítaní údajov');
+      }
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+        hasError = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Profil zákazníka'),
+        backgroundColor: Colors.orange,
+      ),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : hasError
+              ? const Center(child: Text('Nepodarilo sa načítať údaje.'))
+              : Center(
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: DataTable(
+                        border: TableBorder.all(
+                          color: Colors.orange,
+                          width: 1.5,
+                        ),
+                        headingRowColor: MaterialStateColor.resolveWith(
+                            (states) => Colors.orange),
+                        headingTextStyle: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.bold),
+                        columns: const [
+                          DataColumn(label: Text('Atribút')),
+                          DataColumn(label: Text('Hodnota')),
+                        ],
+                        rows: [
+                          _buildRow('Meno', customerData!['name']),
+                          _buildRow('Priezvisko', customerData!['surname']),
+                          _buildRow('City', customerData!['city']),
+                          _buildRow('Telephone', customerData!['telephone']),
+                          _buildRow('Birthdate', customerData!['birthdate']),
+                          _buildRow('Email', customerData!['email']),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+    );
+  }
+
+  DataRow _buildRow(String label, String? value) {
+    return DataRow(
+      cells: [
+        DataCell(Text(
+          label,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        )),
+        DataCell(Text(value ?? 'N/A')),
+      ],
+    );
+  }
+}
+
 // Obrazovka prihlásenia cez ičo a heslo
-class icoLoginScreen extends StatelessWidget {
-  const icoLoginScreen({super.key});
+class IcoLoginScreen extends StatelessWidget {
+  const IcoLoginScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final TextEditingController icoController = TextEditingController();
     final TextEditingController passwordController = TextEditingController();
 
+    // Funkcia na odoslanie prihlasovacej požiadavky
+    Future<void> login(BuildContext context) async {
+      final String ico = icoController.text.trim();
+      final String password = passwordController.text.trim();
+
+      if (ico.isEmpty || password.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Prosím vyplňte IČO a heslo!')),
+        );
+        return;
+      }
+
+      final url = Uri.parse('http://localhost:8080/company/login');
+
+      try {
+        // Odoslanie požiadavky
+        final response = await http.post(
+          url,
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({'ico': ico, 'password': password}),
+        );
+
+        print('Odosielam JSON: ${json.encode({
+              'ico': ico,
+              'password': password
+            })}');
+        print('Response status code: ${response.statusCode}');
+        print('Response body: ${response.body}');
+
+        if (response.statusCode == 200) {
+          final responseData = json.decode(response.body);
+
+          final token = responseData['token'];
+          // Ensure companyId is treated as a String here
+          final companyId =
+              responseData['companyId'].toString(); // Convert it to String
+
+          // Uloženie tokenu do SharedPreferences
+          SharedPreferences prefs = await SharedPreferences.getInstance();
+          await prefs.setString('jwt_token', token);
+
+          // Navigácia na profilovú obrazovku
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ProfileScreenCompany(companyId: companyId),
+            ),
+          );
+        } else if (response.statusCode == 400) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Chyba: ${response.body}')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Nesprávne prihlasovacie údaje!')),
+          );
+        }
+      } catch (error) {
+        print('Chyba pripojenia: $error');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Chyba pripojenia: $error')),
+        );
+      }
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Prihlásenie pre firmy'),
+        title: const Text('Prihlásenie firmy'),
         backgroundColor: Colors.orange,
       ),
       body: Center(
@@ -317,7 +526,7 @@ class icoLoginScreen extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Prihlásenie',
+                  'Prihlásenie firmy',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -328,29 +537,26 @@ class icoLoginScreen extends StatelessWidget {
                 TextField(
                   controller: icoController,
                   keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'IČO',
                     border: OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.numbers),
+                    prefixIcon: Icon(Icons.business),
                   ),
                 ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: passwordController,
                   obscureText: true,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'Heslo',
                     border: OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.lock),
+                    prefixIcon: Icon(Icons.lock),
                   ),
                 ),
                 const SizedBox(height: 20),
                 ElevatedButton(
                   onPressed: () {
-                    final ico = icoController.text;
-                    final password = passwordController.text;
-                    // TODO: Implement login logic
-                    print('Email: $ico, Password: $password');
+                    login(context);
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.orange,
@@ -363,28 +569,137 @@ class icoLoginScreen extends StatelessWidget {
                     style: TextStyle(color: Colors.white),
                   ),
                 ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const ResetPasswordScreen()),
-                    );
-                  },
-                  child: const Text(
-                    'Zabudol som heslo',
-                    style: TextStyle(
-                      color: Colors.orange,
-                      fontSize: 16,
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class ProfileScreenCompany extends StatefulWidget {
+  final String companyId; // Ensure the companyId is a String
+
+  const ProfileScreenCompany({super.key, required this.companyId});
+
+  @override
+  _ProfileScreenCompanyState createState() => _ProfileScreenCompanyState();
+}
+
+class _ProfileScreenCompanyState extends State<ProfileScreenCompany> {
+  Map<String, dynamic>? companyData; // To hold the company data
+  bool isLoading = true;
+  bool hasError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    fetchCompanyData(); // Load the company data when the screen is initialized
+  }
+
+  // Function to fetch company data
+  Future<void> fetchCompanyData() async {
+    final url = Uri.parse(
+        'http://localhost:8080/company/${widget.companyId}'); // Use companyId from widget
+
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      final token =
+          prefs.getString('jwt_token'); // Get JWT token from SharedPreferences
+
+      // Send the GET request with token for authentication
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token', // Add token to the header
+        },
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          companyData = json.decode(response.body); // Parse response data
+          isLoading = false;
+        });
+      } else {
+        setState(() {
+          isLoading = false;
+          hasError = true;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+        hasError = true;
+      });
+      print("Error fetching company data: $e");
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Profil firmy'),
+        backgroundColor: Colors.orange,
+      ),
+      body: isLoading
+          ? const Center(
+              child:
+                  CircularProgressIndicator()) // Show loading spinner while data is loading
+          : hasError
+              ? const Center(
+                  child: Text(
+                      'Nepodarilo sa načítať údaje.')) // Show error message if data fetch fails
+              : Center(
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: DataTable(
+                        border: TableBorder.all(
+                          color: Colors.orange,
+                          width: 1.5,
+                        ),
+                        headingRowColor: MaterialStateColor.resolveWith(
+                            (states) => Colors.orange),
+                        headingTextStyle: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.bold),
+                        columns: const [
+                          DataColumn(label: Text('Atribút')),
+                          DataColumn(label: Text('Hodnota')),
+                        ],
+                        rows: companyData == null
+                            ? []
+                            : [
+                                _buildRow('Company Name',
+                                    companyData!['companyName']),
+                                _buildRow('Address', companyData!['address']),
+                                _buildRow('Email', companyData!['email']),
+                                _buildRow(
+                                    'IČO',
+                                    companyData!['ico']
+                                        .toString()), // Ensure IČO is treated as String
+                                _buildRow(
+                                    'Telephone', companyData!['telephone']),
+                              ],
+                      ),
+                    ),
+                  ),
+                ),
+    );
+  }
+
+  // Helper method to build a row in the DataTable
+  DataRow _buildRow(String label, String? value) {
+    return DataRow(
+      cells: [
+        DataCell(Text(
+          label,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        )),
+        DataCell(Text(value ?? 'N/A')), // Show 'N/A' if value is null
+      ],
     );
   }
 }
@@ -577,8 +892,8 @@ class _CustomerRegistrationFormState extends State<CustomerRegistrationForm> {
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _birthDateController,
-                    decoration:
-                        const InputDecoration(labelText: 'Dátum narodenia'),
+                    decoration: const InputDecoration(
+                        labelText: 'Dátum narodenia - formát DD-MM-RRRR'),
                     keyboardType: TextInputType.datetime,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
@@ -703,6 +1018,35 @@ class _CompanyRegistrationFormState extends State<CompanyRegistrationForm> {
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController =
       TextEditingController();
+
+  Future<void> registerCompany() async {
+    final url = Uri.parse('http://localhost:8080/company/register');
+
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'companyName': _nameofcompanyController.text,
+        'ico': _icoofcomapanyController.text,
+        'email': _emailController.text,
+        'telephone': _phoneController.text,
+        'address': _addressController.text,
+        'password': _passwordController.text,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      // Ak je odpoveď úspešná
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Registrácia bola úspešná!'),
+      ));
+    } else {
+      // Ak nastane chyba pri registrácii
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Chyba pri registrácii!'),
+      ));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -834,7 +1178,7 @@ class _CompanyRegistrationFormState extends State<CompanyRegistrationForm> {
                   ElevatedButton(
                     onPressed: () {
                       if (_formKey.currentState?.validate() ?? false) {
-                        // Implementuj logiku pre registráciu
+                        registerCompany();
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                               content: Text('Registrácia prebehla úspešne')),
