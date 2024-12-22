@@ -320,6 +320,7 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   Map<String, dynamic>? customerData;
+  List<dynamic>? vehicleData;
   bool isLoading = true;
   bool hasError = false;
 
@@ -327,8 +328,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     fetchCustomerData();
+    fetchVehicleData();
   }
 
+  // Fetch customer profile data
   Future<void> fetchCustomerData() async {
     final url =
         Uri.parse('http://localhost:8080/customer/${widget.customerId}');
@@ -341,23 +344,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         url,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token', // Posielanie tokenu
+          'Authorization': 'Bearer $token',
         },
       );
 
       if (response.statusCode == 200) {
         setState(() {
-          if (response.statusCode == 200) {
-            // Dekódovanie odpovede s UTF-8
-            final decodedResponse = utf8.decode(response.bodyBytes);
-
-            setState(() {
-              customerData = json.decode(decodedResponse);
-              isLoading = false;
-            });
-          } else {
-            throw Exception('Chyba pri načítaní údajov');
-          }
+          final decodedResponse = utf8.decode(response.bodyBytes);
+          customerData = json.decode(decodedResponse);
           isLoading = false;
         });
       } else {
@@ -367,6 +361,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         isLoading = false;
         hasError = true;
+      });
+    }
+  }
+
+  // Fetch vehicle data
+  Future<void> fetchVehicleData() async {
+    final url = Uri.parse(
+        'http://localhost:8080/vehicle/customerid/${widget.customerId}');
+
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('jwt_token');
+
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          final decodedResponse = utf8.decode(response.bodyBytes);
+          vehicleData = json.decode(decodedResponse);
+
+          // If the vehicle data is empty, set an empty list
+          if (vehicleData == null || vehicleData!.isEmpty) {
+            vehicleData = []; // Assign empty list if no vehicles are found
+          }
+        });
+      } else {
+        // Handle if status code is not 200 (but don't set hasError to true)
+        setState(() {
+          vehicleData = []; // Display an empty list if something goes wrong
+        });
+      }
+    } catch (e) {
+      setState(() {
+        vehicleData = []; // Display an empty list in case of error
       });
     }
   }
@@ -386,26 +420,150 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   child: SingleChildScrollView(
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
-                      child: DataTable(
-                        border: TableBorder.all(
-                          color: Colors.orange,
-                          width: 1.5,
-                        ),
-                        headingRowColor: MaterialStateColor.resolveWith(
-                            (states) => Colors.orange),
-                        headingTextStyle: const TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.bold),
-                        columns: const [
-                          DataColumn(label: Text('Atribút')),
-                          DataColumn(label: Text('Hodnota')),
-                        ],
-                        rows: [
-                          _buildRow('Meno', customerData!['name']),
-                          _buildRow('Priezvisko', customerData!['surname']),
-                          _buildRow('City', customerData!['city']),
-                          _buildRow('Telephone', customerData!['telephone']),
-                          _buildRow('Birthdate', customerData!['birthdate']),
-                          _buildRow('Email', customerData!['email']),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Tlačítka nad tabuľkami
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              ElevatedButton(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => EditProfile(
+                                        customerId: widget.customerId,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                ),
+                                child: Text('Edit Profile'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => AddVehicleScreen(
+                                        customerId: widget.customerId,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                ),
+                                child: Text('Add Vehicle'),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+
+                          // Row to position tables side by side
+                          Row(
+                            children: [
+                              // Prvá tabuľka (Profil zákazníka)
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Tvoj profil',
+                                      style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    DataTable(
+                                      border: TableBorder.all(
+                                        color: Colors.orange,
+                                        width: 1.5,
+                                      ),
+                                      headingRowColor:
+                                          MaterialStateColor.resolveWith(
+                                              (states) => Colors.orange),
+                                      headingTextStyle: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold),
+                                      columns: const [
+                                        DataColumn(label: Text('Atribút')),
+                                        DataColumn(label: Text('Hodnota')),
+                                      ],
+                                      rows: [
+                                        _buildRow(
+                                            'Meno', customerData!['name']),
+                                        _buildRow('Priezvisko',
+                                            customerData!['surname']),
+                                        _buildRow(
+                                            'City', customerData!['city']),
+                                        _buildRow('Telephone',
+                                            customerData!['telephone']),
+                                        _buildRow('Birthdate',
+                                            customerData!['birthdate']),
+                                        _buildRow(
+                                            'Email', customerData!['email']),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 0),
+
+                              // Druhá tabuľka (Vozidlá)
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Vozidlá',
+                                      style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    DataTable(
+                                      border: TableBorder.all(
+                                        color: Colors.orange,
+                                        width: 1.5,
+                                      ),
+                                      headingRowColor:
+                                          MaterialStateColor.resolveWith(
+                                              (states) => Colors.orange),
+                                      headingTextStyle: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold),
+                                      columns: const [
+                                        DataColumn(label: Text('Značka')),
+                                        DataColumn(label: Text('Model')),
+                                        DataColumn(
+                                            label: Text('1. registrace')),
+                                        DataColumn(label: Text('VIN')),
+                                      ],
+                                      rows: vehicleData
+                                              ?.map<DataRow>((vehicle) {
+                                            return DataRow(cells: [
+                                              DataCell(Text(
+                                                  vehicle['brand'] ?? 'N/A')),
+                                              DataCell(Text(
+                                                  vehicle['model'] ?? 'N/A')),
+                                              DataCell(Text(
+                                                  vehicle['registeredAt'] ??
+                                                      'N/A')),
+                                              DataCell(Text(
+                                                  vehicle['vin'] ?? 'N/A')),
+                                            ]);
+                                          }).toList() ??
+                                          [],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),
@@ -423,6 +581,459 @@ class _ProfileScreenState extends State<ProfileScreen> {
         )),
         DataCell(Text(value ?? 'N/A')),
       ],
+    );
+  }
+}
+
+class AddVehicleScreen extends StatefulWidget {
+  final int customerId;
+
+  const AddVehicleScreen({super.key, required this.customerId});
+
+  @override
+  _AddVehicleScreenState createState() => _AddVehicleScreenState();
+}
+
+class _AddVehicleScreenState extends State<AddVehicleScreen> {
+  final TextEditingController brandController = TextEditingController();
+  final TextEditingController modelController = TextEditingController();
+  final TextEditingController registeredAtController = TextEditingController();
+  final TextEditingController vinController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  Future<void> addVehicle() async {
+    final url = Uri.parse('http://localhost:8080/vehicle/add');
+    final vehicleData = {
+      "customerId": widget.customerId,
+      "brand": brandController.text,
+      "model": modelController.text,
+      "registeredAt": registeredAtController.text,
+      "vin": vinController.text,
+    };
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(vehicleData),
+      );
+
+      if (response.statusCode == 200) {
+        // Successfully added vehicle
+        // Use Navigator.pushReplacement to go back to ProfileScreen
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProfileScreen(customerId: widget.customerId),
+          ),
+        );
+      } else {
+        throw Exception('Chyba pri pridávaní vozidla');
+      }
+    } catch (e) {
+      print('Error: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pridať vozidlo'),
+        backgroundColor: Colors.orange,
+      ),
+      body: Center(
+        child: SingleChildScrollView(
+          child: Container(
+            padding: const EdgeInsets.all(24.0),
+            width: 400,
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.orange.shade200,
+                  blurRadius: 10,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Pridať nové vozidlo',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: brandController,
+                    decoration:
+                        const InputDecoration(labelText: 'Značka vozidla'),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Prosím zadajte značku vozidla';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: modelController,
+                    decoration:
+                        const InputDecoration(labelText: 'Model vozidla'),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Prosím zadajte model vozidla';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: registeredAtController,
+                    decoration:
+                        const InputDecoration(labelText: 'Dátum registrácie'),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Prosím zadajte dátum registrácie';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: vinController,
+                    decoration:
+                        const InputDecoration(labelText: 'VIN (max 17 znakov)'),
+                    maxLength: 17,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Prosím zadajte VIN';
+                      }
+                      if (value.length != 17) {
+                        return 'VIN musí mať presne 17 znakov';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () {
+                      if (_formKey.currentState?.validate() ?? false) {
+                        addVehicle();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Vozidlo bolo pridané')),
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange),
+                    child: const Text(
+                      'Pridať vozidlo',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class EditProfile extends StatefulWidget {
+  final int customerId;
+
+  const EditProfile({super.key, required this.customerId});
+
+  @override
+  _EditProfileScreenState createState() => _EditProfileScreenState();
+}
+
+class _EditProfileScreenState extends State<EditProfile> {
+  final TextEditingController nameController = TextEditingController();
+  final TextEditingController surnameController = TextEditingController();
+  final TextEditingController cityController = TextEditingController();
+  final TextEditingController telephoneController = TextEditingController();
+  final TextEditingController birthdateController = TextEditingController();
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _confirmPasswordController =
+      TextEditingController();
+
+  final _formKey = GlobalKey<FormState>();
+
+  // Simulované hodnoty
+  String currentName = "";
+  String currentSurname = "";
+  String currentCity = "";
+  String currentTelephone = "";
+  String currentBirthdate = "";
+  String currentEmail = "";
+
+  Future<void> fetchCustomerData() async {
+    final url =
+        Uri.parse('http://localhost:8080/customer/${widget.customerId}');
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('jwt_token');
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token', // Posielanie tokenu
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final decodedResponse = utf8.decode(response.bodyBytes);
+        final customerData = json.decode(decodedResponse);
+        setState(() {
+          currentName = customerData['name'];
+          currentSurname = customerData['surname'];
+          currentCity = customerData['city'];
+          currentTelephone = customerData['telephone'];
+          currentBirthdate = customerData['birthdate'];
+          currentEmail = customerData['email'];
+
+          nameController.text = currentName;
+          surnameController.text = currentSurname;
+          cityController.text = currentCity;
+          telephoneController.text = currentTelephone;
+          birthdateController.text = currentBirthdate;
+          emailController.text = currentEmail;
+        });
+      } else {
+        throw Exception('Chyba pri načítaní údajov');
+      }
+    } catch (e) {
+      print('Error fetching customer data: $e');
+    }
+  }
+
+  Future<void> updateProfile() async {
+    final url = Uri.parse(
+        'http://localhost:8080/customer/editprofile/${widget.customerId}');
+    final customerData = {
+      "name": nameController.text,
+      "surname": surnameController.text,
+      "city": cityController.text,
+      "telephone": telephoneController.text,
+      "birthdate": birthdateController.text,
+      "email": emailController.text,
+      "password":
+          _passwordController.text.isNotEmpty ? _passwordController.text : null,
+    };
+
+    try {
+      final response = await http.put(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(customerData),
+      );
+
+      if (response.statusCode == 200) {
+        Navigator.pop(context); // Úspešné aktualizovanie, vrátim sa späť
+      } else {
+        throw Exception('Chyba pri aktualizácii profilu');
+      }
+    } catch (e) {
+      print('Error: $e');
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    fetchCustomerData();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Úprava profilu'),
+        backgroundColor: Colors.orange,
+      ),
+      body: Center(
+        child: SingleChildScrollView(
+          child: Container(
+            padding: const EdgeInsets.all(24.0),
+            width: 400,
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.orange.shade200,
+                  blurRadius: 10,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Úprava profilu',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // Aktuálna hodnota nad textovým poľom
+                  Text('Aktuálna hodnota: $currentName',
+                      style: TextStyle(fontSize: 12, color: Colors.black)),
+                  TextFormField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'Meno'),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Zadajte vaše meno';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Text('Aktuálna hodnota: $currentSurname',
+                      style: TextStyle(fontSize: 12, color: Colors.black)),
+                  TextFormField(
+                    controller: surnameController,
+                    decoration: const InputDecoration(labelText: 'Priezvisko'),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Zadajte vaše priezvisko';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Text('Aktuálna hodnota: $currentCity',
+                      style: TextStyle(fontSize: 12, color: Colors.black)),
+                  TextFormField(
+                    controller: cityController,
+                    decoration: const InputDecoration(labelText: 'Mesto'),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Zadajte miesto';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Text('Aktuálna hodnota: $currentTelephone',
+                      style: TextStyle(fontSize: 12, color: Colors.black)),
+                  TextFormField(
+                    controller: telephoneController,
+                    decoration: const InputDecoration(labelText: 'Telefón'),
+                    keyboardType: TextInputType.phone,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Zadajte telefónne číslo';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Text('Aktuálna hodnota: $currentBirthdate',
+                      style: TextStyle(fontSize: 12, color: Colors.black)),
+                  TextFormField(
+                    controller: birthdateController,
+                    decoration:
+                        const InputDecoration(labelText: 'Dátum narodenia'),
+                    keyboardType: TextInputType.datetime,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Zadajte dátum narodenia';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Text('Aktuálna hodnota: $currentEmail',
+                      style: TextStyle(fontSize: 12, color: Colors.black)),
+                  TextFormField(
+                    controller: emailController,
+                    decoration: const InputDecoration(labelText: 'E-mail'),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Zadajte váš e-mail';
+                      }
+                      if (!RegExp(
+                              r"^[a-zA-Z0-9._%+-]+@[a-zAZ0-9.-]+\.[a-zA-Z]{2,}$")
+                          .hasMatch(value)) {
+                        return 'Zadajte platný e-mail';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  // Polia pre zmenu hesla
+                  const Text('Zmeniť heslo', style: TextStyle(fontSize: 16)),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _passwordController,
+                    decoration: const InputDecoration(labelText: 'Nové heslo'),
+                    obscureText: true,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Prosím zadajte nové heslo';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _confirmPasswordController,
+                    decoration:
+                        const InputDecoration(labelText: 'Potvrďte heslo'),
+                    obscureText: true,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Prosím potvrďte heslo';
+                      }
+                      if (value != _passwordController.text) {
+                        return 'Heslá sa musia zhodovať';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () {
+                      if (_formKey.currentState?.validate() ?? false) {
+                        updateProfile();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Profil bol upravený')),
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange),
+                    child: const Text(
+                      'Upravit profil',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -647,7 +1258,8 @@ class _ProfileScreenCompanyState extends State<ProfileScreenCompany> {
       body: isLoading
           ? const Center(
               child:
-                  CircularProgressIndicator()) // Show loading spinner while data is loading
+                  CircularProgressIndicator(), // Show loading spinner while data is loading
+            )
           : hasError
               ? const Center(
                   child: Text(
@@ -656,33 +1268,53 @@ class _ProfileScreenCompanyState extends State<ProfileScreenCompany> {
                   child: SingleChildScrollView(
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
-                      child: DataTable(
-                        border: TableBorder.all(
-                          color: Colors.orange,
-                          width: 1.5,
-                        ),
-                        headingRowColor: MaterialStateColor.resolveWith(
-                            (states) => Colors.orange),
-                        headingTextStyle: const TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.bold),
-                        columns: const [
-                          DataColumn(label: Text('Atribút')),
-                          DataColumn(label: Text('Hodnota')),
-                        ],
-                        rows: companyData == null
-                            ? []
-                            : [
-                                _buildRow('Company Name',
-                                    companyData!['companyName']),
-                                _buildRow('Address', companyData!['address']),
-                                _buildRow('Email', companyData!['email']),
-                                _buildRow(
-                                    'IČO',
-                                    companyData!['ico']
-                                        .toString()), // Ensure IČO is treated as String
-                                _buildRow(
-                                    'Telephone', companyData!['telephone']),
+                      child: Row(
+                        children: [
+                          // Company Profile Table
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SizedBox(height: 20),
+                                Text('Tvoj profil',
+                                    style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 10),
+                                DataTable(
+                                  border: TableBorder.all(
+                                    color: Colors.orange,
+                                    width: 1.5,
+                                  ),
+                                  headingRowColor:
+                                      MaterialStateColor.resolveWith(
+                                          (states) => Colors.orange),
+                                  headingTextStyle: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold),
+                                  columns: const [
+                                    DataColumn(label: Text('Atribút')),
+                                    DataColumn(label: Text('Hodnota')),
+                                  ],
+                                  rows: companyData == null
+                                      ? [] // If no company data, return an empty table
+                                      : [
+                                          _buildRow('Company Name',
+                                              companyData!['companyName']),
+                                          _buildRow('Address',
+                                              companyData!['address']),
+                                          _buildRow(
+                                              'Email', companyData!['email']),
+                                          _buildRow('IČO',
+                                              companyData!['ico'].toString()),
+                                          _buildRow('Telephone',
+                                              companyData!['telephone']),
+                                        ],
+                                ),
                               ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -698,7 +1330,7 @@ class _ProfileScreenCompanyState extends State<ProfileScreenCompany> {
           label,
           style: const TextStyle(fontWeight: FontWeight.bold),
         )),
-        DataCell(Text(value ?? 'N/A')), // Show 'N/A' if value is null
+        DataCell(Text(value ?? 'N/A')), // Display 'N/A' if value is null
       ],
     );
   }
@@ -748,10 +1380,10 @@ class ResetPasswordScreen extends StatelessWidget {
                 TextField(
                   controller: emailController,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'Zadajte svoj e-mail',
                     border: OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.email),
+                    prefixIcon: Icon(Icons.email),
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -820,12 +1452,12 @@ class _CustomerRegistrationFormState extends State<CustomerRegistrationForm> {
 
     if (response.statusCode == 200) {
       // Ak je odpoveď úspešná
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Registrácia bola úspešná!'),
       ));
     } else {
       // Ak nastane chyba pri registrácii
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Chyba pri registrácii!'),
       ));
     }
@@ -893,7 +1525,7 @@ class _CustomerRegistrationFormState extends State<CustomerRegistrationForm> {
                   TextFormField(
                     controller: _birthDateController,
                     decoration: const InputDecoration(
-                        labelText: 'Dátum narodenia - formát DD-MM-RRRR'),
+                        labelText: 'Dátum narodenia - (DD.MM.RRRR)'),
                     keyboardType: TextInputType.datetime,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
@@ -1037,12 +1669,12 @@ class _CompanyRegistrationFormState extends State<CompanyRegistrationForm> {
 
     if (response.statusCode == 200) {
       // Ak je odpoveď úspešná
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Registrácia bola úspešná!'),
       ));
     } else {
       // Ak nastane chyba pri registrácii
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Chyba pri registrácii!'),
       ));
     }
